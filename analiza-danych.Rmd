@@ -1,0 +1,641 @@
+---
+title: "Analiza danych"
+author: "Tomasz Dzięcioł"
+date: "`r format(Sys.time(), '%Y-%m-%d %H:%M%:%S')`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+---
+
+```{r library knitr, include=FALSE}
+library(knitr)
+```
+
+```{r setup, include=FALSE}
+opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE
+)
+```
+
+
+# Podsumowanie wykonanej analizy
+
+Jednym z główną rzeczy, na którą należało zwrócić uwagę podczas pracy z udostępnionymi zbiorami danych, jest ich różnorodność. Każdy z zestawów tematycznym charakteryzuje się własną strukturą. Przed wczytaniem zbiorów danych należało uważnie przeanalizować budowę poszczególnego pliku. Również niedogodności jest różnorodność atrybutów czasowych, dla których były zbierane dane. Czas w wybranych zestawach danych był odmierzany każdego dnia, albo z upływem miesiąca, lub roku. Tak różne dziedziny czasu nie można ze sobą połączyć bez wczesniejszej analizy, przez co analiza różnych zbiorów danych staje się nieprzystępna.
+
+Innym problemem widocznym w wielu zestawach danych jest problem wartości pustych. Ich znaczna ilość w wypadku niektórych atrybutów pozbawia sensu brania rzadkich kolumn pod uwagę podczas przeprowadzania jakichkolwiek analiz.
+
+# Wykorzystane biblioteki
+
+Biblioteki wspomagające wczytywanie i modyfikację danych:
+
+```{r libraries data, message=FALSE}
+library(dplyr)
+library(tidyr)
+library(readr)
+library(readxl)
+library(rmarkdown)
+```
+
+Biblioteki wspomagające wizualizację danych:
+
+```{r libraries graphs, message=FALSE}
+library(ggplot2)
+library(plotly)
+library(corrplot)
+```
+
+Biblioteki użyte podczas uczenia maszynowego:
+
+```{r libraries ML, message=FALSE}
+library(caret)
+```
+
+# Wczytywanie danych
+
+Poniżej znajdują się sekcje, w których odbywa się wczytywanie poszczególnych zestawów danych. W wybranych przypadkach dane są czyszcone i transformowane do wygodniejszej postaci.
+
+## Wymiana walut
+
+Z pliku `data/CurrencyExchangeRates.csv` odczytywane są wskaźniki wymiany walut. Wskaźnik mówi ile wart jest jeden dolar amerykański w danej walucie. Podczas wczytywania konieczne jest wskazanie formatu zapisu daty dla kolumny `Date`. Pozostałe atrybuty są poprawnie automatycznie rozpoznawane jako liczby rzeczywiste.
+
+```{r read data CurrencyExchangeRates 1}
+df_CurrencyExchangeRates <- read_csv(
+  "data/CurrencyExchangeRates.csv",
+  col_types = list(Date = col_date(format = "%Y-%m-%d"))
+)
+```
+
+Następuje transformacja do dłuższej postaci, gdzie rodzaj waluty jest reprezentowany przez atrybut `currency`, a wartość jego wskaźnika danego dnia opisana jest w atrybucie `rate`.
+
+```{r read data CurrencyExchangeRates 3}
+df_CurrencyExchangeRates <- df_CurrencyExchangeRates %>%
+  pivot_longer(
+    cols = -Date,
+    names_to = "currency",
+    values_to = "rate"
+  ) %>%
+  mutate(currency = as.factor(currency))
+```
+
+Rozmiar zbioru danych:
+
+```{r read data CurrencyExchangeRates 4, echo=FALSE}
+dim(df_CurrencyExchangeRates)
+```
+
+Atrybuty zbioru danych:
+
+```{r read data CurrencyExchangeRates 5, echo=FALSE}
+colnames(df_CurrencyExchangeRates)
+```
+
+Statystyki wybranych atrybutów zbioru danych:
+
+```{r read data CurrencyExchangeRates 6, echo=FALSE}
+summary(df_CurrencyExchangeRates)
+```
+
+## Ceny złota
+
+Plik `data/Gold prices.csv` zawiera ceny złota podane w trzech walutach dla danego dnia w dwóch porach: przed południem oraz po południu.
+
+```{r read data Gold prices 1}
+df_Gold_prices <- read_csv("data/Gold prices.csv", show_col_types = FALSE)
+colnames(df_Gold_prices)
+```
+
+Wyliczona zostaje średnia cena dla danej waluty danego dnia, aby móc analizować wartości z mniejszą dokładnością na poziomie jednego dnia.
+
+```{r read data Gold prices 2}
+df_Gold_prices <- df_Gold_prices %>%
+  mutate(`USD (MEAN)` = (`USD (AM)` + `USD (PM)`) / 2) %>%
+  mutate(`GBP (MEAN)` = (`GBP (AM)` + `GBP (PM)`) / 2) %>%
+  mutate(`EURO (MEAN)` = (`EURO (AM)` + `EURO (PM)`) / 2)
+```
+
+Zbiór danych zostaje przetransformowany: zakodowane w nazwach kolumn rodzaj waluty oraz typ wartości interpretowane są jako osobne atrybuty.
+
+```{r read data Gold prices 3}
+df_Gold_prices <- df_Gold_prices %>%
+  pivot_longer(
+    cols = -Date,
+    names_to = c("currency", "type"), names_pattern = "([A-Z]*) \\(([A-Z]*)\\)",
+    values_to = "price"
+  )
+```
+
+Określenie nominalnych typów dla wybranych kolumn.
+
+```{r read data Gold prices 4}
+df_Gold_prices <- df_Gold_prices %>%
+  mutate(across(c(currency, type), as.factor))
+```
+
+Rozmiar zbioru danych:
+
+```{r read data Gold prices 5, echo=FALSE}
+dim(df_Gold_prices)
+```
+
+Atrybuty zbioru danych:
+
+```{r read data Gold prices 6, echo=FALSE}
+colnames(df_Gold_prices)
+```
+
+Statystyki atrybutów zbioru danych:
+
+```{r read data Gold prices 7, echo=FALSE}
+summary(df_Gold_prices)
+```
+
+Wgląd do zbioru danych:
+
+```{r read data Gold prices 8, echo=FALSE}
+df_Gold_prices
+```
+
+## Indeks giełdowy S&P Composite
+
+Informacje wczytane z pliku `data/S&P Composite.csv` na temat indeksu S&P Composite nie ulegają żadnym wstępnym zmianom.
+
+```{r read data S&P Composite 1}
+df_SP_Composite <- read_csv("data/S&P Composite.csv", show_col_types = FALSE)
+```
+
+Rozmiar zbioru danych:
+
+```{r read data S&P Composite 2, echo=FALSE}
+dim(df_SP_Composite)
+```
+
+Atrybuty zbioru danych:
+```{r read data S&P Composite 3, echo=FALSE}
+colnames(df_SP_Composite)
+```
+
+Statystyki atrybutów zbioru danych:
+
+```{r read data S&P Composite 4, echo=FALSE}
+summary(df_SP_Composite)
+```
+
+Wgląd do zbioru danych:
+```{r read data S&P Composite 5, echo=FALSE}
+df_SP_Composite
+```
+
+## Informacje o bitcoin'ie
+
+W plikach znajdujących się w folderze `data/Bitcoin/` dostępne są wybrane cztery statystyki bitcoin'a.
+
+```{r read data bitcoin 1}
+BCHAIN_value_names <- list("DIFF", "HRATE", "MKPRU", "TRVOU")
+BCHAIN_filenames <- paste("BCHAIN-", BCHAIN_value_names, ".csv", sep = "")
+BCHAIN_pathnames <- paste("data/Bitcoin/", BCHAIN_filenames, sep = "")
+
+dfs_BCHAIN <- lapply(BCHAIN_pathnames, read_csv, show_col_types = FALSE)
+```
+
+Po wczytaniu poszczególnych plików następuje połączenie zbiorów danych do wspólnej relacji opisującej statystyki bitcoin'a dla danego dnia.
+
+```{r read data bitcoin 2}
+
+for (i in seq_along(BCHAIN_value_names)) {
+  value_name <- BCHAIN_value_names[[i]]
+  dfs_BCHAIN[[i]] <- rename(dfs_BCHAIN[[i]], !!value_name := Value)
+}
+
+func_BCHAIN_JOIN <- function(...) {
+  df1 = list(...)[[1]]
+  df2 = list(...)[[2]]
+  df_joined = full_join(df1, df2, by = "Date")
+  return(df_joined)
+}
+
+df_BCHAIN <- Reduce(func_BCHAIN_JOIN, dfs_BCHAIN)
+```
+
+Rozmiar zbioru danych:
+
+```{r read data bitcoin 3, echo=FALSE}
+dim(df_BCHAIN)
+```
+
+Atrybuty zbioru danych:
+```{r read data bitcoin 4, echo=FALSE}
+colnames(df_BCHAIN)
+```
+
+Statystyki atrybutów zbioru danych:
+
+```{r read data bitcoin 5, echo=FALSE}
+summary(df_BCHAIN)
+```
+
+Wgląd do zbioru danych:
+```{r read data bitcoin 6, echo=FALSE}
+df_BCHAIN
+```
+
+
+## Wskaźniki rozwoju gospodarek świata
+
+W pliku `data/World_Development_Indicators.xlsx` dostępne są informacje o możliwościach gospodarczych i rozwoju poszczególnych krajów mierzonym przez ponad 100 statystyk.
+
+```{r read data World_Developement_Indicators 1}
+df_World_Development_Indicators <-  read_xlsx(
+  path = "data/World_Development_Indicators.xlsx",
+  na = ".."
+)
+```
+
+Wczytane dane pochodzą z arkusza kalkulacyjnego. Na jego końcu znajduje się informacja o źródle pochodzenia i dacie utworzenia. Informacje te są widoczne w obiekcie zbioru danych w ostatnich pięciu wierszach, które należy usunąć.
+
+```{r read data World_Developement_Indicators 2}
+df_World_Development_Indicators <- head(df_World_Development_Indicators, n = -5)
+```
+
+Następuje transformacja wczytanego zioru danych - atrybuty wskazujące rok zostają skondensowane jako atrybut `year`.
+
+```{r read data World_Developement_Indicators 3}
+df_World_Development_Indicators <- df_World_Development_Indicators %>%
+  pivot_longer(
+    cols = `1970 [YR1970]`:`2020 [YR2020]`,
+    names_to = "year", names_pattern = "([0-9]*) \\[[0-9A-Z]*\\]",
+    values_to = "value"
+  )
+```
+
+Rozmiar zbioru danych:
+
+```{r read data World_Developement_Indicators 5, echo=FALSE}
+dim(df_World_Development_Indicators)
+```
+
+Atrybuty zbioru danych:
+```{r read data World_Developement_Indicators 6, echo=FALSE}
+colnames(df_World_Development_Indicators)
+```
+
+Statystyki atrybutów zbioru danych:
+
+```{r read data World_Developement_Indicators 7, echo=FALSE}
+summary(df_World_Development_Indicators)
+```
+
+Wgląd do zbioru danych:
+```{r read data World_Developement_Indicators 8, echo=FALSE}
+df_World_Development_Indicators
+```
+
+
+# Szczegółowa analiza wartości atrybutów
+
+Poniżej przedstawione są podstawowe operacje sprawdzające zawartość danych oraz ich istotne właściwości.
+
+
+## Wymiana walut
+
+Lista walut wraz z licznikiem wartości pustych:
+
+```{r study data CurrencyExchangeRates 1, echo=FALSE}
+df_CurrencyExchangeRates_NA_count <- df_CurrencyExchangeRates %>%
+  select(currency, rate) %>%
+  group_by(currency) %>%
+  summarise(`NA counts` = sum(is.na(rate))) %>%
+  arrange(`NA counts`, currency)
+
+paged_table(df_CurrencyExchangeRates_NA_count)
+```
+
+Wykresy wybranych walut w czasie:
+
+```{r study data CurrencyExchangeRates 2, echo=FALSE}
+p <- ggplot(
+  df_CurrencyExchangeRates %>%
+    filter(currency %in% c("Australian Dollar", "Russian Ruble", "Euro", "Polish Zloty", "U.K. Pound Sterling", "U.S. Dollar")),
+  aes(x = Date, y = rate, color = currency)
+) +
+  geom_line(size=0.5)
+
+ggplotly(p)
+```
+
+Ograniczenie poglądu do lat 2005-2015, bez waluty `Russian Ruble`:
+
+```{r study data CurrencyExchangeRates 3, echo=FALSE}
+ggplot(
+  df_CurrencyExchangeRates %>%
+    filter(currency %in% c("Australian Dollar", "Euro", "Polish Zloty", "U.K. Pound Sterling", "U.S. Dollar")) %>%
+    filter(Date >= as.Date("2005-01-01"), Date <= as.Date("2015-12-31")),
+  aes(x = Date, y = rate, color = currency)
+) +
+  geom_line(size=0.8)
+```
+
+## Ceny złota
+
+Wykres średnich dziennych cen złota w trzech walutach.
+
+```{r study data Gold prices 1, echo=FALSE}
+ggplot(
+  df_Gold_prices %>%
+    filter(type == "MEAN") %>%
+    select(-type),
+  aes(x = Date, y = price, color = currency)
+) +
+  geom_line(size=0.5)
+```
+
+Wykres średnich dziennych cen złota w trzech walutach w roku 2019. Wyraźnie widoczna jest pewna korelacja między cenami w różnych walutach. Najprawdopodobniej jest to zgodne z kursami wymian między walutami.
+
+```{r study data Gold prices 2, echo=FALSE}
+ggplot(
+  df_Gold_prices %>%
+    filter(type == "MEAN") %>%
+    select(-type) %>%
+    filter(as.integer(format(Date, format="%Y")) == 2019),
+  aes(x = Date, y = price, color = currency)
+) +
+  geom_line(size=0.9)
+```
+
+
+## Indeks giełdowy S&P Composite
+
+Wykresy wszystkich wartości wszystkich atrybutów danych S&P Composite. W celu uzyskania lepszej czytelności, na poszczególnych wykresach zostały zestawione ze sobą atrybuty, dla których przyjmowane są wartości o podobnym rzędzie wielkości.
+
+Na tle wszystkich atrybutów najbardziej wyróżnia się atrybut `Long Interest Rate`, którego wykres przyjmuje inne trendy w odróżnieniu od wykresów pozostałych atrybutów.
+
+```{r study data S&P Composite 1, echo=FALSE}
+ggplot() +
+  geom_line(data = df_SP_Composite, aes(x = Year, y = `S&P Composite`, color = "S&P Composite")) +
+  geom_line(data = df_SP_Composite, aes(x = Year, y = `Real Price`, color = "Real Price")) +
+  scale_color_manual(values = c("S&P Composite" = "blue", "Real Price" = "red")) +
+  labs(x = "Date", y = "value", color = "Attributes")
+
+ggplot() +
+  geom_line(data = df_SP_Composite, aes(x = Year, y = Earnings, color = "Earnings")) +
+  geom_line(data = df_SP_Composite, aes(x = Year, y = CPI, color = "CPI")) +
+  geom_line(data = df_SP_Composite, aes(x = Year, y = `Real Earnings`, color = "Real Earnings")) +
+  scale_color_manual(values = c("Earnings" = "blue", "CPI" = "red", "Real Earnings" = "green")) +
+  labs(x = "Date", y = "value", color = "Attributes")
+
+ggplot() +
+  geom_line(data = df_SP_Composite, aes(x = Year, y = Dividend, color = "Dividend")) +
+  geom_line(data = df_SP_Composite, aes(x = Year, y = `Real Dividend`, color = "Real Dividend")) +
+  geom_line(data = df_SP_Composite, aes(x = Year, y = `Cyclically Adjusted PE Ratio`, color = "Cyclically Adjusted PE Ratio")) +
+  scale_color_manual(values = c("Dividend" = "blue", "Real Dividend" = "red", "Cyclically Adjusted PE Ratio" = "green")) +
+  labs(x = "Date", y = "value", color = "Attributes")
+
+ggplot() +
+  geom_line(data = df_SP_Composite, aes(x = Year, y = `Long Interest Rate`, color = "Long Interest Rate")) +
+  scale_color_manual(values = c("Long Interest Rate" = "blue")) +
+  labs(x = "Date", y = "value", color = "Attributes")
+```
+
+## Informacje o bitcoin'ie
+
+Poniżej wykresy czterech własności Bitcoin'a (`DIFF`, `HRATE`, `MKPRU`, `TRVOU`). Widoczne jest ożywienie badanych wartości w roku 2017.
+
+```{r study data bitcoin 1, echo=FALSE}
+for (i in seq_along(BCHAIN_value_names)) {
+  value_name <- BCHAIN_value_names[[i]]
+  
+  p <- ggplot(
+    df_BCHAIN,
+    aes(x = Date, y = df_BCHAIN[[i + 1]])
+  ) +
+    geom_line(size=0.9) +
+    labs(y = value_name)
+  
+  print(p)
+}
+```
+
+## Wskaźniki rozwoju gospodarek świata
+
+Liczba różnych wartości:
+
+```{r study data World_Development_Indicators 1, echo=FALSE}
+number_of_years <- df_World_Development_Indicators %>%
+  select(year) %>%
+  distinct() %>%
+  count() %>%
+  pull()
+paste("Liczba lat, w których zbierane były statystyki: ", number_of_years)
+
+number_of_countries <- df_World_Development_Indicators %>%
+  select(`Country Name`) %>%
+  distinct() %>%
+  count() %>%
+  pull()
+paste("Liczba krajów, dla których zbierane były statystyki: ", number_of_countries)
+
+number_of_series <- df_World_Development_Indicators %>%
+  select(`Series Name`) %>%
+  distinct() %>%
+  count() %>%
+  pull()
+paste("Liczba statystyk, która została uwzględniona w badaniach: ", number_of_series)
+```
+
+Poniżej w tabeli dla danej statystyki zliczona została liczba wartości pustych.
+
+```{r study data World_Development_Indicators 2, echo=FALSE}
+df_World_Development_Indicators_value_NA_count <- df_World_Development_Indicators %>%
+  select(`Series Name`, value) %>%
+  group_by(`Series Name`) %>%
+  summarise(`NA counts` = sum(is.na(value))) %>%
+  arrange(`NA counts`, `Series Name`) %>%
+  mutate(`% NA` = `NA counts` / (number_of_countries * number_of_years) * 100)
+
+paged_table(df_World_Development_Indicators_value_NA_count)
+```
+
+Dla większości statystyk ponad 25% wartości to wartości puste. Dalsza analiza będzie się opierać na statystykach, dla których zebrano dużo wartości. Wybrane zostają statystyki, które posiadają określone ponad 75% wartości.
+
+```{r study data World_Development_Indicators 3, echo=FALSE}
+ df_World_Development_Indicators_important_series <- df_World_Development_Indicators_value_NA_count %>%
+  filter(`% NA` < 25) %>%
+  select(`Series Name`) %>%
+  distinct() %>%
+  pull()
+
+df_World_Development_Indicators_important <- df_World_Development_Indicators %>%
+  filter(`Series Name` %in% df_World_Development_Indicators_important_series)
+```
+
+Lista krajów, dla których zbierane były statystyki:
+
+```{r study data World_Development_Indicators 4, echo=FALSE}
+distinct_countries <- df_World_Development_Indicators_important %>%
+  select(`Country Name`) %>%
+  distinct()
+
+paged_table(distinct_countries)
+```
+
+Pod atrybutem `Country Name` kryją się nazwy, które nie odnoszą się do krajów. Są to regiony danego poziomu gospodarczego, dla którego statystyki zostały podsumowane. Tak skumulowane statystyki mogą być znacznie bardziej przydatne, niż statystyki dla pojedynczych krajów. Poniżej lista specjalnych wartości atrybutu `Country Name`.
+
+```{r study data World_Development_Indicators 5, echo=FALSE}
+df_World_Development_Indicators_grouped_regions <- filter(distinct_countries, grepl("income|World", `Country Name`)) %>% pull()
+kable(df_World_Development_Indicators_grouped_regions, col.names = c("Specjalne wartości atrybutu `Country Name`"))
+```
+
+Poniżej w tabeli dla danego kraju (podobnie jak wcześniej dla danej statystyki) zliczona została liczba wartości pustych. Po wcześniejszym uprzątnięciu statystyk z wartościami pustymi widać, że pozostawione statystyki dla danego kraju są w większości wypełnione. Tylko dla kilku krajów poziom niewypełnienia danych sięga kilkunastu procent.
+
+```{r study data World_Development_Indicators 6, echo=FALSE}
+df_World_Development_Indicators_value_NA_count_by_country <- df_World_Development_Indicators_important %>%
+  select(`Country Name`, value) %>%
+  group_by(`Country Name`) %>%
+  summarise(`NA counts` = sum(is.na(value))) %>%
+  arrange(`NA counts`, `Country Name`) %>%
+  mutate(`% NA` = `NA counts` / (number_of_series * number_of_years) * 100)
+
+paged_table(df_World_Development_Indicators_value_NA_count_by_country)
+```
+
+
+# Badanie korelacji
+
+## Korelacja między statystykami w danym państwie
+
+Sprawdzenie istnienia korelacji między statystykami dla Polski.
+
+```{r corr hash 1537, echo=FALSE}
+df_Poland_Development_Indicators_important_transformed <- df_World_Development_Indicators_important %>%
+  filter(`Country Name` == "Poland") %>%
+  select(`Series Name`, year, value) %>%
+  pivot_wider(
+    names_from = `Series Name`,
+    values_from = value
+  ) %>%
+  select(-year) %>%
+  drop_na()
+
+cor_Matrix_Poland <- cor(df_Poland_Development_Indicators_important_transformed)
+rownames(cor_Matrix_Poland) <- c(1 : dim(cor_Matrix_Poland)[[1]])
+colnames(cor_Matrix_Poland) <- c(1 : dim(cor_Matrix_Poland)[[2]])
+corrplot(cor_Matrix_Poland, method="circle")
+```
+
+Należy zwrócić uwagę, na atrybuty, które występują ze sobą w silnej korelacji pozytywnej lub negatywnej. W wyraźniejszym wykryciu tych korelacji pomoże zmodyfikowana macierz korelacji, dla której wartości w przyjętym przedziale `<-0.9; 0.9>` zostaną wyzerowane.
+
+```{r corr hash 6735, echo=FALSE}
+cor_Matrix_Poland_threshold <- (cor_Matrix_Poland < -0.9 | cor_Matrix_Poland > 0.9) * cor_Matrix_Poland
+cor_Matrix_Poland_threshold[is.na(cor_Matrix_Poland_threshold)] = 0.0
+corrplot(cor_Matrix_Poland_threshold, method="circle")
+```
+
+Z powyższego wykresu można odczytać grupę atrybutów na pozycjach `6, 7, 19, 28, 30, 33, 36, 37, 38, 39`, które są ze sobą skorelowane. Istnieje też druga grupa atrybutów, które są ze sobą skorelowane pozytywnie, ale za to negatywnie z pierwszą grupą atrybutów. Są to atrybuty na pozycjach `21, 22, 24, 25, 34, 35`.
+
+Pierwsza grupa atrybutów:
+
+```{r corr hash 6243, echo=FALSE}
+Poland_corr_col_1 <- colnames(df_Poland_Development_Indicators_important_transformed)[c(6, 7, 19, 28, 30, 33, 36, 37, 38, 39)]
+Poland_corr_col_1
+```
+
+Druga grupa atrybutów:
+
+```{r corr hash 1233, echo=FALSE}
+Poland_corr_col_2 <- colnames(df_Poland_Development_Indicators_important_transformed)[c(21, 22, 24, 25, 34, 35)]
+Poland_corr_col_2
+```
+
+Naturalną rzeczą wydaje się fakt, że skorelowane ze sobą są:
+- procent mężczyzn oraz procent kobiet, którzy dożywają wieku 65 lat i powyżej, a także oczekiwana długość życia
+- liczba zgonów poniżej 5 roku życia i wskaźnik przeżycia dziecka przy porodzie
+- produkt krajowy brutto dla całego kraju oraz w przeliczeniu na jednego mieszkańca
+
+Również porównując między dwoma grupami atrybutów, uzasadnione jest występowanie korelacji negatywnej między śmiertelnością, a żywotnością.
+
+Poza tymi oczywistymi korelacjami, można natomiast odnaleźć ciekawą zależność między długością życia, bogactwem państwa, a źródłem produkcji gazu CO2. Prawdopodobnie to osiągnięcie długiego wieku życia jest związane z wysokim bogactwem danego państwa (GDP) oraz z używaniem paliw gazowych/płynnych, które są źródłem emisji CO2. Spalanie paliw stałych musi zatem wpływać negatywnie na zdrowie.
+
+
+# Regresor przewidujący cenę złota
+
+Proponowany regresor będzie próbował oszacować wartość złota wyrażoną w dolarach na podstawie obecnych wskaźników wymiany walut.
+
+Przygotowanie zbioru danych - Wybierane są waluty, dla których nie brakuje informacji o wskaźniku wymiany dla więcej niż około 35% wpisów (przyjęto granice 2000 wartości pustych). Dane o cenie złota jest łączona ze wskaźnikami wymiany walut we wspólny zbiór danych `reg_data`.
+
+```{r reg hash 2345}
+reg_Gold_prices <- df_Gold_prices %>%
+  filter(type == "MEAN", currency == "USD") %>%
+  select(Date, price) %>%
+  drop_na()
+
+reg_important_currency <- df_CurrencyExchangeRates_NA_count %>%
+  filter(`NA counts` < 2000) %>%
+  select(currency) %>%
+  pull()
+
+reg_CurrencyExchangeRates <- df_CurrencyExchangeRates %>%
+  filter(currency %in% reg_important_currency) %>%
+  pivot_wider(
+    names_from = currency,
+    values_from = rate
+  )
+
+reg_data <- inner_join(reg_Gold_prices, reg_CurrencyExchangeRates, by="Date")
+```
+
+Ustalenie stałej wartości dla źródła liczb losowych - powtarzalność eksperymentu uczenia maszynowego.
+
+```{r reg hash 3463}
+set.seed(44)
+```
+
+Podział zbioru na treningowy i testowy
+
+```{r reg hash 1212}
+reg_idx_train <- createDataPartition(y = reg_data$price, p = 0.7, list = FALSE)
+
+reg_train <- reg_data[reg_idx_train, ]
+reg_test <- reg_data[-reg_idx_train, ]
+```
+
+Schemat uczenia
+
+```{r reg hash 3757}
+ctrl <- trainControl(
+  method = "repeatedcv",
+  number = 2,
+  repeats = 5
+)
+```
+
+Uczenie
+
+```{r reg hash 6876}
+fit <- train(
+  price ~ .,
+  data = reg_train,
+  method = "lm",
+  trControl = ctrl,
+  intercept = 0.0,
+  na.action = na.exclude
+)
+```
+
+Podsumowanie wyników uczenia regresora
+
+```{r reg hash 7433}
+fit$results
+
+summary(fit)
+```
+
+predykcja
+
+```{r reg hash 3462}
+lrResult <- predict(fit, newdata = reg_test)
+length(lrResult)
+length(reg_test$price)
+```
+
+Chętnie bym porównał wyniki predykcji wraz rzeczywistymi wartościami. Niestety, niee mam już czasu, żeby przeanalizować, dlaczego liczba zwracanych wyników funkcji `predict()` różni się od rekordów w zbiorze testowym.
